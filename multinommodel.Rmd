@@ -1,0 +1,337 @@
+---
+title: "multinomial regresion"
+author: "Dr.metales"
+date: "12/22/2019"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = FALSE,error = FALSE,message = FALSE)
+```
+
+## Introduction
+
+In this paper we will fit a multinomial regression model to the **heart disease** data [uploaded from kaggle website](https://www.kaggle.com/johnsmith88/heart-disease-dataset).
+
+This model is based on the following function called also **Maximum entropy classifier**
+
+$$p(y=c|X,W)={\exp(W_c^TX)\over\sum_{\substack{c}}\exp(W_c^TX)}$$
+
+For instance, categorical variable with three class labels ("1","2","3") will have a  probability equation for each level:
+
+$$
+p(y=1|X,W)={\exp(W_1^TX)\over\sum_{\substack{c}}\exp(W_c^TX)}\\
+p(y=2|X,W)={\exp(W_2^TX)\over\sum_{\substack{c}}\exp(W_c^TX)}\\
+p(y=3|X,W)={\exp(W_3^TX)\over\sum_{\substack{c}}\exp(W_c^TX)}$$
+
+
+We can simplify further these eaquations by deviding the second and the third one by the first one. These new dependent varaibels called the **odds**  :
+
+$$
+\frac {p_2}{p_1}=\exp(W_2^T-W_1^T)X \\ 
+\frac {p_3}{p_1}=\exp(W_3^T-W_1^T)X$$
+
+Now we can convert these non linear eqautions to linear eqautions by including the log function to the odds:
+
+$$
+\log(\frac {p_2}{p_1})=\beta^T X \\ 
+\log(\frac {p_3}{p_1})=\gamma^T X$$
+
+
+
+## Data praparation
+
+First, we call the data and the libraries that we need along this illustration as follows.
+
+
+```{r}
+library(tidyverse)
+library(caret)
+mydata<-read.csv("heart.csv",header = TRUE)
+names(mydata)[1]<-"age"
+glimpse(mydata)
+```
+
+The data at hand has the following features:
+
+* age.
+* sex: 1=male,0=female
+* cp : chest pain type.
+* trestbps :  resting blood pressure.
+* chol: serum cholestoral.
+* fbs : fasting blood sugar.
+* restecg : resting electrocardiographic results.
+* thalach : maximum heart rate achieved
+* exang : exercise induced angina. 
+* oldpeak : ST depression induced by exercise relative to rest.
+* slope : the slope of the peak exercise ST segment.
+* ca : number of major vessels colored by flourosopy.
+* thal : it is not well defined from the data source.
+* target: have heart disease or not.
+
+
+For our case we will use the chest pain type **cp** variable as our target variable since it is a categorical variable. 
+
+
+For pedagogique purposes, and to well understand how this type of model works, we will simplify things by restricting the data to one response variable **cp**, and two predictors, **age** as numeric variable and **target** as factor. 
+
+
+```{r}
+data<-mydata[,c("cp","age","target")]
+```
+
+We convert now **cp** and **target** to be factors.
+
+```{r}
+data<- data %>%
+  modify_at(c(1,3),as.factor)
+```
+
+To avoid any confusion we rename the **target** variable as **disease** and its levels 0 and 1 as **no** and **yes**
+
+```{r}
+names(data)[3]<-"disease"
+data$disease<-fct_recode(data$disease,no="0",yes="1")
+```
+
+Next we should ristrict our dependent variable **cp** to have 3 levels rahter than 4 levels now in order to make understanding the model coefficients more easier, and we rename the maitained levels. 
+
+```{r}
+table(data$cp)
+```
+
+Since the level 3 is the less frequently one then it will be dropped,but first we should remove the entire rows that are associated with this level. 
+ 
+```{r}
+
+data<-data[data$cp!=3,]
+data$cp<-fct_drop(data$cp,only=levels(data$cp))
+
+```
+Then we rename the  **cp** levels by names rather than numbers.
+
+```{r}
+data$cp<-fct_recode(data$cp,first="0",second="1",third="2")
+```
+
+ 
+Finally let's get the saummary to be sure that everything is right.
+
+```{r}
+summary(data)
+```
+
+
+The last step before fitting our model is to split the data btween training set and test set.
+
+## Data partition
+
+
+
+```{r}
+set.seed(1122)
+index<-createDataPartition(data$cp,p=.8,list=FALSE)
+train<-data[index,]
+test<-data[-index,]
+```
+
+
+## Training the model
+
+For multinomial model we make use of **nnet** package.
+
+```{r}
+library(nnet)
+model<-train(cp~., data=train,
+             method="multinom",
+             trace=FALSE)
+summary(model)
+```
+
+the equations of the summary can be explained as follows:
+
+
+$$  
+log(\frac {p_{second}}{p_{first}})=0.1539724 -0.0417869644*age+1.886763*disease \\
+ log(\frac {p_{third}}{p_{first}})=-1.7402316  -0.0004840051*age+2.279453*disease$$
+
+
+
+
+so if we take a particular patient, say the third one (note that some observations are dropped with the dropped cp level "3").
+
+the third one is 56 years and has the heart disease with the second chest pain type.
+
+```{r}
+data[3,]
+```
+ if we include these values in the above equations we get the follwing log odds.
+ 
+ 
+```{r}
+0.1539724 -(0.0417869644*56)+1.886763
+-1.7402316 -(0.0004840051*56)+ 2.279453
+```
+
+  
+
+$$ log(\frac {p_{second}}{p_{first}})=-0.2993346 \\
+ log(\frac {p_{third}}{p_{first}})=0.5121171$$
+
+and using the fact that $p_{first}+p_{second}+p_{third}=1$ and after some manipulation we get the probability of each type. 
+
+ $$\frac {p_{second}}{p_{first}}=exp(-0.2993346)=0.7413113 \\
+ \frac {p_{third}}{p_{first}}=exp(0.5121171)=1.668821 \\
+ p_{first}=0.2932438 \\
+ p_{second}=0.2173849 \\
+ p_{third}=0.4893713$$
+ 
+
+Now let's check the predicted probabilities by the **predict** function.
+
+```{r}
+pred<-predict(model,data[3,],type="prob")
+pred
+```
+
+
+
+
+## Prediction and confusion matrix
+
+
+Now let's get the confusion matrix for the training set.
+
+
+```{r}
+pred<-predict(model,train)
+confusionMatrix(pred,train$cp)
+
+```
+
+```{r}
+82/(82+1+32)
+(0+3+28+57)/(9+13+0+3+28+57)
+```
+
+
+However, we are interested more in the accuracy rate for the test set.
+
+
+```{r}
+pred<-predict(model,test)
+confusionMatrix(pred,test$cp)
+```
+
+
+We have an accuracy rate about 61.82%.
+
+
+## Updating the model
+
+
+Before updating the model the summary function did not giv us the significance of each predictor, so we need to do this by hand as follows.
+
+
+```{r}
+z<-summary(model)$coefficients/summary(model)$standard.errors
+p<-(1-pnorm(abs(z)))*2
+p
+```
+
+
+As you see the **age** varibale is not significant in both equations.
+
+Now let's include all the predictors except those factors that do not satisfy the threshold of 5 cases in the cross tables, and we remove the **cp level** "3" as we did earlier.
+
+
+```{r}
+mydata<-mydata %>%
+  modify_at(c(2,3,6,7,9,11,12,13,14),as.factor)
+mydata<-mydata[mydata$cp!=3,]
+mydata$cp<-fct_drop(mydata$cp,only=levels(mydata$cp))
+mydata$cp<-fct_recode(mydata$cp,first="0",second="1",third="2")
+
+xtabs(~cp+sex,data=mydata)
+xtabs(~cp+target,data=mydata)
+xtabs(~cp+fbs,data=mydata)
+xtabs(~cp+restecg,data=mydata)
+xtabs(~cp+exang,data=mydata)
+xtabs(~cp+slope,data=mydata)
+xtabs(~cp+ca,data=mydata)
+xtabs(~cp+thal,data=mydata)
+
+
+```
+
+We remove then **restecg**,**exang**,**slope**,**ca**, and **thal**.
+
+```{r}
+mydata<-mydata[,-c(7,9,11,12,13)]
+```
+
+Now let's partition the data and train the model.
+
+
+```{r}
+mydata$cp<-relevel(mydata$cp,ref = "first")
+set.seed(1122)
+index<-createDataPartition(mydata$cp,p=.8,list=FALSE)
+trainall<-mydata[index,]
+testall<-mydata[-index,]
+```
+
+```{r}
+modelall<-train(cp~., data=trainall,
+             method="multinom",
+             trace=FALSE)
+summary(modelall)
+```
+
+
+
+```{r}
+z<-summary(modelall)$coefficients/summary(modelall)$standard.errors
+p<-(1-pnorm(abs(z)))*2
+p
+```
+
+As we see we have only **thalach**, **oldpeak** and **target** that are significant so we can think to remove these predictors from the model. 
+
+
+
+```{r}
+modelall<-train(cp~thalach+oldpeak+target, data=trainall,
+             method="multinom",
+             trace=FALSE)
+```
+
+
+```{r}
+summary(modelall)
+
+```
+
+
+```{r}
+z<-summary(modelall)$coefficients/summary(modelall)$standard.errors
+p<-(1-pnorm(abs(z)))*2
+p
+```
+
+Now all the predictors are approximately significant (except **thalach** slightly above 0.05).
+
+```{r}
+pred<-predict(modelall,trainall)
+confusionMatrix(pred,trainall$cp)
+```
+
+
+```{r}
+pred<-predict(modelall,testall)
+confusionMatrix(pred,testall$cp)
+```
+we have the same rate such as our original simple model  **61.82%**.
+
